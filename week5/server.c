@@ -16,7 +16,32 @@
 static struct sockaddr_in server_addr, client_addr;
 static int server_fd, client_fd, n, n2;
 static char recv_data[6000];
-static char chat_data[6000];
+
+void BN_Square_Multi(BIGNUM *z,BIGNUM *x, BIGNUM *a, BIGNUM *n, BN_CTX *bn_ctx) {
+    BN_one(z);
+
+    BIGNUM *temp = BN_new();
+    BN_zero(temp);
+    if(BN_cmp(a, temp) == 0) {
+        BN_free(temp);
+        return;
+    }
+
+    int length = BN_num_bits(a);
+    BN_copy(temp, x);
+    if(BN_is_bit_set( a, 0 )) {
+        BN_copy(z, temp);
+    }
+
+    for(int i = 1; i < length; i++) {
+        BN_mod_mul(temp, temp, temp, n, bn_ctx);
+        if(BN_is_bit_set(a, i)) {
+            BN_mod_mul(z, z, temp, n, bn_ctx);
+        }
+    }
+
+    BN_free(temp);
+}
 
 int main(int argc, char *argv[]) {
 	int len;
@@ -28,44 +53,39 @@ int main(int argc, char *argv[]) {
 	BIGNUM *key = BN_new();
 	BN_CTX *ctx = BN_CTX_new();
 
-	if (argc != 2) {
+	if(argc != 2) {
 		printf("Usage:%s <port>\n", argv[0]);
 		exit(1);
 	}
 
-	if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+	if((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
 		printf("Server can not open socket\n");
 		exit(0);
 	}
 
 	memset(&server_addr, 0, sizeof(server_addr));
-
 	server_addr.sin_family = AF_INET;
-
 	server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-
 	server_addr.sin_port = htons(atoi(argv[1]));
 
-	if (bind(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
+	if(bind(server_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
 		printf("Server can not bind local address\n");
 		exit(0);
 	}
 
-	if (listen(server_fd, 5) < 0) {
+	if(listen(server_fd, 5) < 0) {
 		printf("Server can not listen connect\n");
 		exit(0);
 	}
 
 	memset(recv_data, 0, sizeof(recv_data));
 	len = sizeof(client_addr);
-	printf("===[PORT] : %s=====\n", argv[0]);
+	printf("===[PORT] : %s=====\n", argv[1]);
 	printf("Server waiting connection request\n");
 
+	client_fd = accept(server_fd, (struct sockaddr*)&client_addr, (socklen_t*)&len);
 
-
-	client_fd = accept(server_fd, (struct sockaddr *)&client_addr, (socklen_t *)&len);
-
-	if (client_fd < 0) {
+	if(client_fd < 0) {
 		printf("Server accept failed\n");
 		exit(0);
 	}
@@ -75,15 +95,16 @@ int main(int argc, char *argv[]) {
 
 	printf("\n%s(%d) entered\n", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
 
+	// DH //////////////////////////////////////////////////////////////////////////
 	memset(recv_data, 0, sizeof(recv_data));
-	if ((n = recv(client_fd, recv_data, sizeof(recv_data), 0)) == -1){
+	if((n = recv(client_fd, recv_data, sizeof(recv_data), 0)) == -1) {
 		printf("recv error\n");
 		return 0;
 	}
 	printf("recv data : %s\n", recv_data);
 
 	memset(recv_data, 0, sizeof(recv_data));
-	if ((n = recv(client_fd, recv_data, sizeof(recv_data), 0)) == -1){
+	if((n = recv(client_fd, recv_data, sizeof(recv_data), 0)) == -1) {
 		printf("recv error\n");
 		return 0;
 	}
@@ -97,7 +118,7 @@ int main(int argc, char *argv[]) {
 	const char *GX = json_object_get_string(find3);
 	BN_hex2bn(&p, P); BN_hex2bn(&g, G); BN_hex2bn(&gx, GX);
 	BN_rand_range(sv_x, p); // sv_x <- Z_p
-	BN_mod_exp(key, g, sv_x, p, ctx); // sv_GX = g^sv_x
+	BN_Square_Multi(key, g, sv_x, p, ctx); // BN_mod_exp(key, g, sv_x, p, ctx); // sv_GX = g^sv_x
 
 	json_object *send_obj = json_object_new_object();
 	json_object_object_add(send_obj, "order", json_object_new_string("DHKEY"));
@@ -105,14 +126,15 @@ int main(int argc, char *argv[]) {
 	json_object_object_add(send_obj, "G", json_object_new_string(BN_bn2hex(g)));
 	json_object_object_add(send_obj, "GX", json_object_new_string(BN_bn2hex(key)));
 	const char *send_data = json_object_to_json_string(send_obj);
-	printf("sended : %s\n", send_data);
-
-	if ((n = send(client_fd, send_data, strlen(send_data)+1, 0)) == -1) {
+	if((n = send(client_fd, send_data, strlen(send_data)+1, 0)) == -1) {
 		printf("send fail \n");
 		return 0;
 	}
-	BN_mod_exp(key, gx, sv_x, p, ctx);
+	printf("sended : %s\n", send_data);
+
+	BN_Square_Multi(key, gx, sv_x, p, ctx); // BN_mod_exp(key, gx, sv_x, p, ctx);
 	printf("DH key exchange result : %s\n", BN_bn2hex(key));
+	////////////////////////////////////////////////////////////////////////////////
 
 	BN_CTX_free(ctx); 
 	BN_free(sv_x); BN_free(p); BN_free(g); BN_free(gx); BN_free(key);
