@@ -24,7 +24,7 @@ public:
     ~MerkleTree() {
         tx_list.clear();
         tx_list.shrink_to_fit();
-        // cout << "The tx_list size is " << tx_list.size() << ", and its " << "capacity is " << tx_list.capacity() << endl;
+        free(root);
     }
 
     // tx을 랜덤으로 생성해서 tx_list에 추가해주는 함수
